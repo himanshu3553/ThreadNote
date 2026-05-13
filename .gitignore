@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment — never commit real secrets
+.env
+.env.example
+
+# Eval outputs (large, generated)
+tests/eval_runs/
+
+# Private thread captures (commit only anonymised samples)
+tests/sample_threads/*.json
+!tests/sample_threads/.gitkeep
+
+# macOS
+.DS_Store

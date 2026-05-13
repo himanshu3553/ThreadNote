@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(./node_modules/.bin/tsx --version)",
+      "Bash(./node_modules/.bin/tsx --help)",
+      "Bash(NODE_OPTIONS=\"--env-file=.env\" ./node_modules/.bin/tsx watch src/index.ts)",
+      "Bash(kill %1)",
+      "Bash(wait %1)",
+      "WebSearch",
+      "WebFetch(domain:api.slack.com)",
+      "WebFetch(domain:docs.slack.dev)"
+    ]
+  }
+}
