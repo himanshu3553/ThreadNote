@@ -10,7 +10,13 @@
       "Bash(wait %1)",
       "WebSearch",
       "WebFetch(domain:api.slack.com)",
-      "WebFetch(domain:docs.slack.dev)"
+      "WebFetch(domain:docs.slack.dev)",
+      "Bash(npm install *)",
+      "Bash(npx prisma *)",
+      "Bash(wait)",
+      "Bash(npm list *)",
+      "Bash(node -e \"import\\('@slack/bolt'\\).then\\(m => { console.log\\(Object.keys\\(m\\)\\); console.log\\('Assistant:', typeof m.Assistant\\); }\\)\")",
+      "Bash(node -e \"import\\('@slack/bolt'\\).then\\(m => { const app = new m.App\\({ token: 'test', appToken: 'test', socketMode: true }\\); console.log\\('has assistant method:', typeof app.assistant\\); }\\).catch\\(e => console.log\\('init error \\(expected\\):', e.message.slice\\(0,100\\)\\)\\)\")"
     ]
   }
 }

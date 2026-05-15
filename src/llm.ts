@@ -34,3 +34,31 @@ export async function callLLM(
 
   return response.output_text;
 }
+
+/**
+ * Sends KB context + conversation history + new user message to OpenAI.
+ * Used by the assistant panel for RAG-backed replies.
+ */
+export async function callLLMWithContext(
+  kbContext: string,
+  history: Array<{ role: string; content: string }>,
+  userMessage: string
+): Promise<string> {
+  const historyText = history
+    .map((m) => `${m.role.charAt(0).toUpperCase() + m.role.slice(1)}: ${m.content}`)
+    .join("\n");
+
+  const input =
+    `=== Your Knowledge Base (relevant threads) ===\n${kbContext}\n\n` +
+    `=== Conversation so far ===\n${historyText}\n\n` +
+    `=== New question ===\n${userMessage}`;
+
+  const response = await openai.responses.create({
+    model: MODEL,
+    instructions: SYSTEM_PROMPT,
+    input,
+    reasoning: { effort: "low" },
+  });
+
+  return response.output_text;
+}

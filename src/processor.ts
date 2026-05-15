@@ -5,9 +5,11 @@ import {
   formatThreadForLLM,
   getChannelName,
   getThreadPermalink,
+  getUserName,
   markdownToSlackMrkdwn,
 } from "./slack-utils.js";
 import { callLLM } from "./llm.js";
+import { upsertUser, saveThreadNote } from "./kb.js";
 
 type MentionEvent = SlackEventMiddlewareArgs<"app_mention">["event"];
 
@@ -45,7 +47,8 @@ async function postEphemeral(
  */
 export async function processMention(
   event: MentionEvent,
-  client: WebClient
+  client: WebClient,
+  workspaceId: string
 ): Promise<void> {
   const channel = event.channel;
   const userId = event.user;
@@ -96,6 +99,22 @@ export async function processMention(
     for (const chunk of chunkText(summary)) {
       await postEphemeral(client, channel, userId, threadTs, chunk);
     }
+
+    // Persist to knowledge base — runs after response is delivered so it never delays the user.
+    const displayName = await getUserName(client, userId);
+    upsertUser(workspaceId, userId, displayName).catch((err) =>
+      console.error("ThreadNote: failed to upsert user:", err)
+    );
+    saveThreadNote({
+      workspaceId,
+      userId,
+      channelId: channel,
+      channelName,
+      threadTs,
+      summaryMarkdown: rawSummary,
+    }).catch((err) =>
+      console.error("ThreadNote: failed to save thread note:", err)
+    );
   } catch (err) {
     console.error("ThreadNote error:", err);
     const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);

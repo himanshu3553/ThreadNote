@@ -1,0 +1,59 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+  engineType      = "client"
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector")]
+}
+
+model User {
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  displayName      String?  @map("display_name")
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at")
+
+  threadNotes   ThreadNote[]
+  conversations Conversation[]
+
+  @@id([slackWorkspaceId, slackUserId])
+  @@map("users")
+}
+
+model ThreadNote {
+  id               String   @id @default(cuid())
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  channelId        String   @map("channel_id")
+  channelName      String?  @map("channel_name")
+  threadTs         String   @map("thread_ts")
+  summaryMarkdown  String   @map("summary_markdown")
+  decisions        Json?
+  actionItems      Json?    @map("action_items")
+  tags             String[]
+  embedding        Unsupported("vector(3072)")?
+  savedAt          DateTime @default(now()) @map("saved_at")
+
+  user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
+
+  @@unique([slackWorkspaceId, slackUserId, channelId, threadTs])
+  @@map("thread_notes")
+}
+
+model Conversation {
+  id               String   @id @default(cuid())
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  sessionThreadTs  String   @map("session_thread_ts")
+  role             String
+  content          String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
+
+  @@index([slackWorkspaceId, slackUserId, sessionThreadTs, createdAt])
+  @@map("conversations")
+}

@@ -1,322 +1,593 @@
-# CLAUDE.md — ThreadNote Phase 1
+# CLAUDE.md — ThreadNote
 
-This file gives Claude Code everything it needs to understand and work on the ThreadNote codebase. Read this fully before making any changes.
-
----
-
-## What this project is
-
-**ThreadNote** is a Slack bot that processes threads into structured summaries, decision logs, action items, and knowledge-base entries. Users invoke it by mentioning `@ThreadNote` in any thread with an optional instruction (e.g. `@ThreadNote summarise this`, `@ThreadNote action items`, `@ThreadNote go ahead`).
-
-The bot:
-1. Receives an `app_mention` Slack event
-2. Immediately posts a placeholder message (so the user gets feedback within 3 seconds)
-3. Fetches the entire thread via `conversations.replies`
-4. Resolves all user IDs to real names
-5. Formats the thread into a clean transcript
-6. Calls the OpenAI Responses API with the ThreadNote system prompt
-7. Converts the markdown output to Slack mrkdwn format
-8. Updates the placeholder with the final summary
+This is the single source of truth for Claude Code. Read the entire file before making any changes. Phase 1 is fully completed. Phase 2 is the current work.
 
 ---
 
-## Tech stack
+## Project Overview
 
-| Concern | Choice | Reason |
-|---------|--------|--------|
-| Language | TypeScript (strict) | Type safety with Slack's complex API payloads |
-| Runtime | Node.js v24+ | Project is on v24.15.0 |
-| Module system | ESM (`"type": "module"`) | Modern Node standard |
-| Dev runner | `tsx` with `--env-file=.env` flag | Handles ESM + env loading before any module code runs |
-| Slack SDK | `@slack/bolt` v4 | Official Bolt SDK; handles Socket Mode, event routing, ACK |
-| Slack connection | Socket Mode | No public HTTPS endpoint needed for Phase 1 |
-| LLM provider | OpenAI | Confirmed choice |
-| OpenAI model | `gpt-5.4` | Confirmed: standard, not mini |
-| OpenAI endpoint | Responses API (`client.responses.create`) | OpenAI's current recommended endpoint; NOT Chat Completions |
-| Reasoning effort | `{ effort: "low" }` | Confirmed setting passed in responses call |
-| Slack output format | Plain text mrkdwn | Post-process converter applied after LLM output; no Block Kit, no Canvas |
-| Persistence | None | Phase 1 is fully stateless; no DB of any kind |
-| Conversation memory | None | Each `@ThreadNote` invocation is independent |
+**ThreadNote** is a Slack bot that processes threads into structured summaries, decision logs, action items, and a searchable personal knowledge base. Users invoke it by mentioning `@ThreadNote` in any thread with an optional instruction.
+
+**Phase 1** (completed): Thread processing, LLM summarisation, ephemeral responses.
+**Phase 2** (current): Persist every summary to Neon Postgres, generate embeddings, and enable a conversational AI assistant panel where users can chat with ThreadNote using their saved threads as the knowledge base.
 
 ---
 
-## Confirmed decisions — do not revisit without explicit user instruction
+## Phase 1 — COMPLETED
 
-1. **Model**: `gpt-5.4` — do not swap to mini, nano, or any other variant
-2. **mrkdwn**: use the post-process converter (`markdownToSlackMrkdwn` in `slack-utils.ts`) — do not instruct the LLM to emit Slack mrkdwn format directly
-3. **Conversation memory**: off — if someone mentions `@ThreadNote` twice in the same thread, each invocation is fully independent; the second does not see the first response
-4. **Reasoning effort**: pass `reasoning: { effort: "low" }` in `client.responses.create`
-5. **No Block Kit** in Phase 1 — plain text mrkdwn only
-6. **No Canvas** in Phase 1 — `canvases:write` scope is intentionally absent from the manifest
-7. **No database** in Phase 1 — nothing is persisted anywhere
+Do not modify anything in this section without explicit instruction. All Phase 1 code is working and in production on the dev sandbox.
 
----
+### What was built
 
-## Project structure
+- Socket Mode Bolt app with `app_mention` event handler
+- 3-second ACK + fire-and-forget pattern
+- Full thread fetch via `conversations.replies` with pagination
+- User ID to real name resolution with in-memory cache
+- Channel name resolution with in-memory cache
+- Mention resolution (`<@U>`, `<#C|name>`, `<url|label>`)
+- Thread transcript formatter for LLM input
+- OpenAI Responses API call with `reasoning: { effort: "low" }`
+- Placeholder post then update pattern
+- Markdown to Slack mrkdwn post-process converter
+- Long response chunking (2900 char limit)
+- Ephemeral responses — summary visible only to the invoking user
+- Bot-loop guard
+- `capture-thread.ts` CLI
+- `eval.ts` eval harness
+
+### Phase 1 confirmed decisions — do not change
+
+| Decision | Choice |
+|----------|--------|
+| Language | TypeScript (strict) |
+| Runtime | Node.js v24+ |
+| Module system | ESM ("type": "module") |
+| Dev runner | tsx with --env-file=.env |
+| Slack SDK | @slack/bolt v4 |
+| Slack connection | Socket Mode |
+| LLM provider | OpenAI |
+| OpenAI model | gpt-5.4 |
+| OpenAI endpoint | Responses API only — never Chat Completions |
+| Reasoning effort | { effort: "low" } |
+| Slack output | Plain text mrkdwn — no Block Kit, no Canvas |
+| Conversation memory | None in Phase 1 — each invocation independent |
+| Persistence | None in Phase 1 |
+
+### Phase 1 file structure
 
 ```
 threadnote/
-├── CLAUDE.md                       ← this file
-├── .env                            ← secrets (gitignored)
-├── .env.example                    ← committed template
+├── CLAUDE.md
+├── .env
+├── .env.example
 ├── .gitignore
 ├── package.json
 ├── tsconfig.json
-├── threadnote_system_prompt.md     ← ThreadNote system prompt (do not edit without instruction)
+├── threadnote_system_prompt.md
 ├── src/
-│   ├── index.ts                    ← entry point; Bolt app init, app_mention handler
-│   ├── slack-utils.ts              ← thread fetching, user/channel resolution, mrkdwn converter
-│   ├── llm.ts                      ← OpenAI Responses API call, system prompt loading
-│   └── types.ts                    ← shared interfaces: SlackMessage, SlackReaction
+│   ├── index.ts                <- entry point, app_mention handler
+│   ├── slack-utils.ts          <- thread fetch, user/channel resolution, mrkdwn converter
+│   ├── llm.ts                  <- OpenAI Responses API call
+│   └── types.ts                <- SlackMessage, SlackReaction interfaces
 └── tests/
-    ├── sample_threads/             ← captured thread JSON files (gitignore private ones)
-    ├── capture-thread.ts           ← CLI to save a Slack thread URL → JSON
-    └── eval.ts                     ← eval harness: all sample threads × all intent modes
+    ├── sample_threads/
+    ├── capture-thread.ts
+    └── eval.ts
 ```
 
----
+### Phase 1 environment variables
 
-## Environment variables
+```
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4
+```
 
-All loaded via `--env-file=.env` in npm scripts. Do NOT use `import "dotenv/config"` anywhere — see the critical note below.
-
-| Variable | Description |
-|----------|-------------|
-| `SLACK_BOT_TOKEN` | `xoxb-...` bot OAuth token for Slack API calls |
-| `SLACK_APP_TOKEN` | `xapp-...` app-level token for Socket Mode |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `OPENAI_MODEL` | Model string — defaults to `gpt-5.4` if not set |
-
-**Critical — env loading order**: In ESM, all imported modules are evaluated before the importing module's body runs. This means if `llm.ts` calls `new OpenAI()` at module level, it runs *before* `import "dotenv/config"` in `index.ts` has loaded the `.env` file. The fix is `--env-file=.env` in the npm scripts, which makes Node load the file before any module code runs. Never revert this to `import "dotenv/config"`.
-
----
-
-## Commands
+### Phase 1 commands (all still valid)
 
 ```bash
-npm run dev         # tsx watch with hot reload
-npm run start       # tsx, run once
-npm run build       # tsc compile to dist/
-npm run typecheck   # type check only, no emit
-npm run eval        # run eval harness across all sample threads
-npm run capture -- "<slack-thread-url>" <name>   # capture a thread to JSON
+npm run dev        # tsx watch --env-file=.env src/index.ts
+npm run start      # tsx --env-file=.env src/index.ts
+npm run build      # tsc
+npm run typecheck  # tsc --noEmit
+npm run eval       # tsx --env-file=.env tests/eval.ts
+npm run capture -- "<url>" <name>
 ```
 
-### Capture example
+### Critical Phase 1 patterns — do not break
+
+**Never await processMention** inside the Bolt event handler. Bolt must return within 3 seconds.
+
+**Never add import "dotenv/config"** anywhere. Env is loaded via --env-file=.env in npm scripts.
+
+**Never use Chat Completions API.** Only client.responses.create.
+
+**Always apply markdownToSlackMrkdwn** before posting any LLM output to Slack.
+
+**Always filter m.ts !== event.ts** to exclude the trigger message from the thread transcript.
+
+---
+
+## Phase 2 — CURRENT WORK
+
+Build Phase 2 features in the order specified in the Build Order section. Do not skip steps or build out of sequence.
+
+### Phase 2 feature list
+
+**Core infrastructure**
+- Neon Postgres + pgvector database
+- Prisma ORM with Prisma Migrate for schema management
+- users, thread_notes, conversations tables with composite primary key
+
+**Knowledge Base**
+- Generate OpenAI embedding for every thread summary
+- Persist every @ThreadNote invocation automatically to thread_notes
+- Per-user KB isolation — all queries filtered by (slack_workspace_id, slack_user_id)
+
+**Chat with ThreadNote (AI Assistant)**
+- Enable Agents & AI Apps on Slack app (updated manifest below)
+- assistant_thread_started handler — greeting + suggested prompts
+- assistant_thread_context_changed handler — save context
+- userMessage handler — RAG search + conversation memory + LLM response
+- Semantic search over user's saved threads (pgvector cosine similarity)
+- Conversation memory — rolling window of last 15 messages per session
+
+### Phase 2 confirmed decisions — do not change
+
+| Decision | Choice |
+|----------|--------|
+| Database | Neon Postgres with pgvector extension |
+| ORM | Prisma (@prisma/client) |
+| Migrations | Prisma Migrate (prisma migrate dev) |
+| Embeddings model | text-embedding-3-large (3072 dimensions) |
+| KB save trigger | Every @ThreadNote invocation — automatic |
+| KB isolation | Option A — fully personal per user |
+| Composite key | (slack_workspace_id, slack_user_id) on all user-scoped tables |
+| Conversation memory | Rolling window — last 15 messages per assistant session |
+| Hosting | Local machine, Socket Mode, dev sandbox only |
+| Workspace | Dev sandbox — NOT TabSquare |
+
+### New packages to install
+
 ```bash
-npm run capture -- "https://workspace.slack.com/archives/C0123456/p1715600000001000" rabbitmq-migration
-# → saves to tests/sample_threads/rabbitmq-migration.json
+npm install @prisma/client
+npm install -D prisma
+npx prisma init
 ```
 
----
+### Updated environment variables
 
-## Architecture: the 3-second ACK pattern
+Add these to .env and .env.example. Keep all Phase 1 variables.
 
-Slack requires an ACK within **3 seconds** of an event. The OpenAI call takes longer. The solution is fire-and-forget:
+```
+# Phase 1 (unchanged)
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4
 
-```typescript
-app.event("app_mention", async ({ event, client, ack }) => {
-  if (typeof ack === "function") await ack(); // ACK Slack immediately
-  if ((event as { bot_id?: string }).bot_id) return; // ignore bots — prevents loops
+# Phase 2 — Neon Postgres
+DATABASE_URL=postgresql://user:password@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+DIRECT_URL=postgresql://user:password@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 
-  // intentionally NOT awaited
-  processMention(event, client).catch(console.error);
-});
+# Phase 2 — Embeddings
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 ```
 
-**Never `await processMention`** inside the event handler. Awaiting it means Bolt doesn't return to Slack within 3 seconds, causing Slack to retry, which causes duplicate responses.
+DATABASE_URL is the pooled connection used by Prisma client at runtime.
+DIRECT_URL is the direct non-pooled connection used exclusively by Prisma Migrate.
+Neon provides both from their dashboard. For local dev both can be the same string.
 
----
+### Updated Slack app manifest
 
-## Key implementation patterns
+Replace the existing manifest in Slack app config with this:
 
-### OpenAI Responses API call
-```typescript
-const response = await client.responses.create({
-  model: MODEL,                    // "gpt-5.4"
-  instructions: SYSTEM_PROMPT,    // system prompt equivalent
-  input: userContent,             // thread transcript + user instruction
-  reasoning: { effort: "low" },
-});
-return response.output_text;      // convenience accessor for full text output
+```yaml
+display_information:
+  name: ThreadNote
+  description: AI thread summarizer and personal knowledge base
+  background_color: "#2c3e50"
+features:
+  bot_user:
+    display_name: ThreadNote
+    always_online: true
+  assistant:
+    suggested_prompts:
+      - title: "What was decided recently?"
+        message: "What were the key decisions from my recently saved threads?"
+      - title: "Show my open action items"
+        message: "What are my open action items from saved threads?"
+      - title: "Summarise my knowledge base"
+        message: "Give me a summary of everything I have saved so far."
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+      - chat:write
+      - users:read
+      - channels:read
+      - groups:read
+      - reactions:read
+      - assistant:write
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - assistant_thread_started
+      - assistant_thread_context_changed
+      - message.im
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
 ```
 
-Never use `client.chat.completions.create` — that is the legacy Chat Completions API.
+After updating the manifest, reinstall the app to the workspace so the new assistant:write scope takes effect.
 
-### mrkdwn conversion
-The LLM returns standard markdown. Slack does not render it. Always post-process:
-```typescript
-const summary = await callLLM(transcript, instruction);
-const slackText = markdownToSlackMrkdwn(summary); // in slack-utils.ts
-```
+### Prisma schema
 
-Key conversions:
+Create this at prisma/schema.prisma:
 
-| Standard markdown | Slack mrkdwn |
-|-------------------|--------------|
-| `**bold**` | `*bold*` |
-| `# Heading` | `*Heading*` (bolded line) |
-| `[label](url)` | `<url\|label>` |
-| Pipe tables | Bullet-formatted lines |
+```prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
 
-### Thread transcript format
-```
-=== Thread Metadata ===
-Channel: #devops-uat
-Participants: Fauzan, Mishika, Praveen Tripathi
-Total messages: 9
-Date range: 2026-05-13 14:30 UTC to 2026-05-13 18:15 UTC
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
+}
 
-=== Conversation ===
+model User {
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  displayName      String?  @map("display_name")
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at")
 
-[2026-05-13 14:30 UTC] Fauzan:
-Hi all, we plan to remove loadbalancer...
-[reactions: :+1: x2]
+  threadNotes   ThreadNote[]
+  conversations Conversation[]
 
-[2026-05-13 17:31 UTC] Praveen Tripathi:
-URL can be updated now also @Fauzan?
-```
+  @@id([slackWorkspaceId, slackUserId])
+  @@map("users")
+}
 
-Slack-style mentions (`<@U123>`) are resolved to real names before sending. The trigger message (the `@ThreadNote` mention itself) is excluded by filtering `m.ts !== event.ts`.
+model ThreadNote {
+  id               String   @id @default(cuid())
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  channelId        String   @map("channel_id")
+  channelName      String?  @map("channel_name")
+  threadTs         String   @map("thread_ts")
+  summaryMarkdown  String   @map("summary_markdown")
+  decisions        Json?
+  actionItems      Json?    @map("action_items")
+  tags             String[]
+  embedding        Unsupported("vector(3072)")?
+  savedAt          DateTime @default(now()) @map("saved_at")
 
-### Long response chunking
-Slack hard-limits messages to ~3000 chars. Chunk if longer:
-```typescript
-const chunks = [...chunkString(slackText)]; // 2900 char safety margin
-await client.chat.update({ channel, ts: placeholder.ts, text: chunks[0] });
-for (const chunk of chunks.slice(1)) {
-  await client.chat.postMessage({ channel, thread_ts: threadTs, text: chunk });
+  user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
+
+  @@unique([slackWorkspaceId, slackUserId, channelId, threadTs])
+  @@map("thread_notes")
+}
+
+model Conversation {
+  id               String   @id @default(cuid())
+  slackWorkspaceId String   @map("slack_workspace_id")
+  slackUserId      String   @map("slack_user_id")
+  sessionThreadTs  String   @map("session_thread_ts")
+  role             String
+  content          String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
+
+  @@map("conversations")
 }
 ```
 
----
+IMPORTANT: The embedding field uses Unsupported("vector(3072)") because Prisma does not natively support pgvector operations. This means:
+- You CANNOT use prisma.threadNote.create with an embedding value
+- Inserting and updating embeddings requires prisma.$executeRaw
+- Searching by vector similarity requires prisma.$queryRaw
+- All other fields on all models work normally with the standard Prisma client
 
-## Slack API specifics
+### Phase 2 npm scripts to add to package.json
 
-### Scopes in the manifest
-`app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, `users:read`, `channels:read`, `groups:read`, `reactions:read`
-
-`canvases:write` is intentionally absent.
-
-### Subtypes filtered before LLM
-`tombstone`, `channel_join`, `channel_leave`, `channel_topic`, `channel_purpose`
-
-### Caching
-`getUserName` and `getChannelName` use module-level `Map` caches. These reset on process restart. No TTL is needed for Phase 1 since user/channel names don't change mid-session.
-
-### Rate limits
-This is an internal app (not Marketplace-distributed), so `conversations.replies` operates at full Tier 3 rate limits. No throttling logic needed for Phase 1.
-
----
-
-## System prompt
-
-File: `threadnote_system_prompt.md` at project root.
-
-Loaded once at startup by `llm.ts` using `readFile`. Contains intent detection logic (FULL, TLDR, SUMMARY, DECISIONS, ACTIONS, STATUS, FOLLOWUP, EMAIL, KB, ANALYSIS), output templates per mode, extraction rules, and edge case handling.
-
-**Do not modify this file** without explicit instruction. It is the primary quality lever. Any change requires running the eval harness before and after.
-
----
-
-## Testing
-
-### Eval harness
-```bash
-npm run eval
+```json
+"db:migrate": "prisma migrate dev",
+"db:generate": "prisma generate",
+"db:studio": "prisma studio",
+"db:push": "prisma db push"
 ```
-- Reads all `.json` files in `tests/sample_threads/`
-- Runs each through `callLLM` with 5 intent modes: `go ahead`, `tldr`, `action items`, `decisions only`, `draft followup`
-- Outputs `tests/eval_runs/<timestamp>/report.md`
 
-**Run eval after any change to**: system prompt, `llm.ts` (model/prompt shape), or `formatThreadForLLM`.
+Run db:migrate whenever prisma/schema.prisma changes.
+Always run db:generate after db:migrate to regenerate the Prisma client.
 
-### Capturing threads
-```bash
-npm run capture -- "<url>" <name>
+### Phase 2 updated file structure
+
 ```
-Resolves user IDs to names at capture time and saves a self-contained JSON. This lets eval run without Slack API calls.
+threadnote/
+├── CLAUDE.md
+├── .env
+├── .env.example
+├── .gitignore
+├── package.json
+├── tsconfig.json
+├── threadnote_system_prompt.md
+├── prisma/
+│   ├── schema.prisma               <- Prisma schema (above)
+│   └── migrations/                 <- auto-generated by Prisma Migrate
+├── src/
+│   ├── index.ts                    <- UPDATED: register assistant + kb save on mention
+│   ├── slack-utils.ts              <- UNCHANGED from Phase 1
+│   ├── llm.ts                      <- UPDATED: add callLLMWithContext export
+│   ├── types.ts                    <- UPDATED: add Phase 2 types
+│   ├── db.ts                       <- NEW: Prisma client singleton
+│   ├── embeddings.ts               <- NEW: OpenAI embeddings generation
+│   ├── kb.ts                       <- NEW: save to KB, search KB, conversation history
+│   └── assistant.ts                <- NEW: Bolt Assistant handlers
+└── tests/
+    ├── sample_threads/
+    ├── capture-thread.ts
+    └── eval.ts
+```
 
 ---
 
-## Do NOT do these things
+## Phase 2 Build Order
 
-- **Do not change the model** from `gpt-5.4` without instruction
-- **Do not switch to Chat Completions API** (`client.chat.completions.create`)
-- **Do not add `import "dotenv/config"`** anywhere in the codebase
-- **Do not add a database or any persistence**
-- **Do not implement Block Kit responses**
-- **Do not implement Canvas creation**
-- **Do not add streaming** to the OpenAI call
-- **Do not `await processMention`** inside the Bolt event handler
-- **Do not remove the `bot_id` guard** in the event handler
-- **Do not modify `threadnote_system_prompt.md`** without instruction
+Build exactly in this sequence. Do not skip steps or build out of order.
+
+**Step 1 — Install and initialise Prisma**
+
+```bash
+npm install @prisma/client
+npm install -D prisma
+npx prisma init
+```
+
+Replace the generated prisma/schema.prisma with the schema above.
+
+**Step 2 — Enable pgvector on Neon and run first migration**
+
+In Neon SQL editor run:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Then:
+```bash
+npm run db:migrate
+# migration name when prompted: initial_schema
+npm run db:generate
+```
+
+Verify all three tables exist in Neon dashboard before continuing.
+
+**Step 3 — Create src/db.ts**
+
+Prisma client singleton. Never instantiate PrismaClient more than once in the process.
+
+```typescript
+import { PrismaClient } from "@prisma/client";
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({ log: ["error", "warn"] });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+```
+
+**Step 4 — Create src/embeddings.ts**
+
+```typescript
+import OpenAI from "openai";
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-large";
+
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const response = await client.embeddings.create({
+    model: EMBEDDING_MODEL,
+    input: text,
+  });
+  return response.data[0].embedding; // 3072 dimensions
+}
+```
+
+**Step 5 — Create src/kb.ts**
+
+Four exports:
+- upsertUser — create user if not exists, update display name
+- saveThreadNote — insert summary then update embedding via $executeRaw
+- searchKB — embed query then $queryRaw with cosine operator filtered by user
+- getConversationHistory — fetch last N messages for a session, returned in chronological order
+- saveConversationMessage — insert a single message into conversations table
+
+Embedding insert pattern (use this exact approach):
+```typescript
+// Step A: create record without embedding using standard Prisma
+const note = await prisma.threadNote.create({ data: { ...fieldsWithoutEmbedding } });
+
+// Step B: update embedding column via raw SQL
+await prisma.$executeRaw`
+  UPDATE thread_notes
+  SET embedding = ${`[${embedding.join(",")}]`}::vector
+  WHERE id = ${note.id}
+`;
+```
+
+Vector search pattern:
+```typescript
+const results = await prisma.$queryRaw`
+  SELECT id, channel_name, thread_ts, summary_markdown, decisions, action_items, tags,
+         1 - (embedding <=> ${`[${queryEmbedding.join(",")}]`}::vector) AS similarity
+  FROM thread_notes
+  WHERE slack_workspace_id = ${workspaceId}
+    AND slack_user_id = ${userId}
+    AND embedding IS NOT NULL
+  ORDER BY embedding <=> ${`[${queryEmbedding.join(",")}]`}::vector
+  LIMIT ${limit}
+`;
+```
+
+**Step 6 — Update src/index.ts to save on every mention**
+
+In processMention, after the LLM call succeeds:
+1. Call upsertUser with workspaceId, userId, display name
+2. Call saveThreadNote with all fields including the summary
+3. Get workspaceId from context.teamId — add context to the handler parameters
+
+**Step 7 — Update Slack manifest**
+
+Paste the updated manifest YAML into Slack app config.
+Reinstall the app to the workspace to apply the new assistant:write scope.
+
+**Step 8 — Update src/llm.ts**
+
+Add a second export callLLMWithContext alongside the existing callLLM. This takes:
+- kbContext: string — the retrieved thread summaries formatted as text
+- history: Array of { role: string, content: string } — conversation messages
+- userMessage: string — the new user message
+
+Build the input as:
+```
+=== Your Knowledge Base (relevant threads) ===
+{kbContext}
+
+=== Conversation so far ===
+{history formatted as "Role: content" lines}
+
+=== New question ===
+{userMessage}
+```
+
+Pass instructions (system prompt) unchanged. Pass this assembled string as input.
+
+**Step 9 — Create src/assistant.ts**
+
+Use Bolt's Assistant class with three handlers:
+
+threadStarted:
+- Call saveThreadContext()
+- Send greeting message
+- Call setSuggestedPrompts with three prompts from manifest
+
+threadContextChanged:
+- Call saveThreadContext() only
+
+userMessage:
+- Call setStatus("searching your knowledge base...")
+- Call setTitle with first 50 chars of user message
+- Save user message to conversations table
+- Generate embedding for user message
+- Call searchKB to get top 5 relevant threads
+- Load last 15 conversation messages for this session
+- Call callLLMWithContext with KB results + history + user message
+- Call setStatus("") to clear the status
+- Save assistant response to conversations table
+- Call say() with the response
+
+**Step 10 — Register assistant in src/index.ts**
+
+```typescript
+import { threadNoteAssistant } from "./assistant.js";
+app.assistant(threadNoteAssistant);
+```
+
+Add this after the app_mention event registration.
 
 ---
 
-## Current implementation status
+## Phase 2 Key Patterns
 
-### Done
-- [x] TypeScript + ESM + tsx project setup
-- [x] Socket Mode Bolt app (`SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN`)
-- [x] `app_mention` handler — ACK + fire-and-forget + bot-loop guard
-- [x] `fetchFullThread` with cursor-based pagination
-- [x] `getUserName` with in-memory cache
-- [x] `getChannelName` with in-memory cache
-- [x] `resolveMentions` — handles `<@U>`, `<#C|name>`, `<url|label>`, `<url>`
-- [x] `formatThreadForLLM` — metadata header + chronological transcript
-- [x] Subtype filtering and trigger message exclusion
-- [x] `callLLM` — OpenAI Responses API with `instructions`, `input`, `reasoning`
-- [x] Placeholder post → update pattern
-- [x] Long response chunking (2900 char limit)
-- [x] `markdownToSlackMrkdwn` post-process converter
-- [x] `capture-thread.ts` CLI
-- [x] `eval.ts` eval harness
-- [x] `--env-file=.env` env loading in all npm scripts
+**User identity — always composite key**
 
-### Phase 1 backlog (not yet built)
-- [ ] `response.usage` logging — track input/output token counts and cost per invocation
-- [ ] Per-day invocation cap per user — prevent cost runaway
-- [ ] Channel blocklist — prevent ThreadNote operating in sensitive channels (e.g. `#hr`, `#legal`)
-- [ ] Startup connectivity check — verify Slack + OpenAI reachable before accepting events
-- [ ] Unit tests for `markdownToSlackMrkdwn`
-- [ ] Unit tests for `resolveMentions`
+Never query with userId alone. Always pass both:
+```typescript
+WHERE slack_workspace_id = ${workspaceId} AND slack_user_id = ${userId}
+```
 
-### Out of scope for Phase 1 — do not implement
-- Postgres / any database
-- Block Kit
-- Canvas creation
-- Streaming responses
-- Multi-workspace OAuth
-- Slack HTTP Events API (moving off Socket Mode)
-- Web dashboard
-- Billing / Stripe
+Get workspaceId from context.teamId in Bolt handlers.
+
+**Conversation history — rolling window**
+
+```typescript
+const history = await prisma.conversation.findMany({
+  where: { slackWorkspaceId, slackUserId, sessionThreadTs },
+  orderBy: { createdAt: "desc" },
+  take: 15,
+});
+history.reverse(); // LLM needs chronological order, not reverse
+```
+
+**LLM prompt structure for assistant chat**
+
+```
+System prompt (threadnote_system_prompt.md)
+  + Retrieved KB context (top 5 matching thread summaries)
+  + Conversation history (last 15 messages)
+  + New user message
+```
 
 ---
 
-## Common errors
+## Phase 2 Do NOT Do
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `OpenAIError: Missing credentials` | `new OpenAI()` ran before `.env` was loaded (ESM init order) | Confirm `--env-file=.env` is in all npm scripts; remove any `import "dotenv/config"` |
-| `not_in_channel` from Slack | Bot is not a member of the channel | `/invite @ThreadNote` in Slack |
-| `missing_scope` from Slack | Token predates a scope addition | Reinstall the app from the Slack app config page |
-| Two responses per mention | `processMention` is being awaited | Remove the `await` — fire-and-forget is intentional |
-| `**bold**` shows literal asterisks in Slack | mrkdwn converter not applied | Wrap LLM output through `markdownToSlackMrkdwn` before posting |
-| `output_text` is empty | Unexpected output block type from OpenAI | Walk `response.output` array and collect all `type === "text"` blocks manually |
-| Eval script crashes on missing key | `.env` not loaded for eval | Confirm `npm run eval` script includes `--env-file=.env` |
+- Do not modify Phase 1 files except src/index.ts (KB save + assistant registration) and src/llm.ts (new export) and src/types.ts (new types)
+- Do not use prisma.threadNote.create with an embedding value — raw SQL only for that column
+- Do not store conversation history in memory — always Postgres via conversations table
+- Do not build Canvas creation — out of scope for Phase 2
+- Do not add channel blocklist — out of scope, decided for later
+- Do not move to TabSquare workspace — stay on dev sandbox
+- Do not switch to HTTP Events API — Socket Mode continues
+- Do not add Stripe or billing — Phase 3 only
+- Do not add a web dashboard — Phase 3 only
 
 ---
 
-## What comes after Phase 1
+## Phase 2 Current Status — COMPLETED
 
-Phase 2 moves this to the TabSquare Slack workspace. New concerns at that point:
-- Postgres database with `thread_notes` table + pgvector embeddings
-- Slack Canvas creation for KB mode
-- Channel allowlist/blocklist from config
-- Per-workspace usage cap and cost tracking
-- Move from Socket Mode → HTTP Events API
-- Structured JSON logging with request IDs
-- Sentry error tracking
+- [x] Install Prisma, initialise
+- [x] Write prisma/schema.prisma
+- [x] Enable pgvector on Neon, run first migration
+- [x] Create src/db.ts
+- [x] Create src/embeddings.ts
+- [x] Create src/kb.ts
+- [x] Update src/index.ts — add KB save after LLM call
+- [x] Update Slack manifest — Agents and AI Apps
+- [x] Update src/llm.ts — add callLLMWithContext
+- [x] Create src/assistant.ts
+- [x] Register assistant in src/index.ts
+- [x] End-to-end test: mention saves to DB, chat retrieves it
 
-Do not pre-build any of this during Phase 1.
+---
+
+## Global Gotchas (All Phases)
+
+| Gotcha | Fix |
+|--------|-----|
+| OpenAIError: Missing credentials | ESM init order — confirm --env-file=.env is in all npm scripts, no import "dotenv/config" anywhere |
+| not_in_channel from Slack | /invite @ThreadNote in the channel first |
+| missing_scope from Slack | Reinstall the app after manifest changes |
+| Two responses per mention | Do not await processMention inside the event handler |
+| bold shows as literal asterisks | Apply markdownToSlackMrkdwn before posting |
+| Prisma client not found | Run npm run db:generate after any schema change |
+| Migration fails on vector type | Run CREATE EXTENSION IF NOT EXISTS vector in Neon SQL editor first |
+| output_text empty from OpenAI | Walk response.output array and collect type === "text" blocks manually |
+| Assistant events not firing | Confirm assistant:write scope is active — reinstall app after manifest update |
+| context.teamId is undefined | Ensure Bolt app is installed to workspace correctly |

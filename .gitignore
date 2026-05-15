@@ -17,3 +17,5 @@ tests/sample_threads/*.json
 
 # macOS
 .DS_Store
+
+/generated/prisma
