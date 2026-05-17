@@ -13,6 +13,9 @@ export async function upsertUser(
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonValue = Record<string, any> | Array<any> | string | number | boolean;
+
 export interface SaveThreadNoteParams {
   workspaceId: string;
   userId: string;
@@ -20,10 +23,17 @@ export interface SaveThreadNoteParams {
   channelName?: string;
   threadTs: string;
   summaryMarkdown: string;
+  decisions?: JsonValue;
+  actionItems?: JsonValue;
+  tags?: string[];
+  threadUrl?: string | null;
 }
 
 export async function saveThreadNote(params: SaveThreadNoteParams): Promise<void> {
-  const { workspaceId, userId, channelId, channelName, threadTs, summaryMarkdown } = params;
+  const {
+    workspaceId, userId, channelId, channelName, threadTs,
+    summaryMarkdown, decisions, actionItems, tags, threadUrl,
+  } = params;
 
   const note = await prisma.threadNote.upsert({
     where: {
@@ -41,10 +51,18 @@ export async function saveThreadNote(params: SaveThreadNoteParams): Promise<void
       channelName,
       threadTs,
       summaryMarkdown,
+      decisions,
+      actionItems,
+      tags: tags ?? [],
+      threadUrl,
     },
     update: {
       summaryMarkdown,
-      channelName,
+      decisions,
+      actionItems,
+      tags: tags ?? [],
+      threadUrl,
+      savedAt: new Date(),
     },
   });
 

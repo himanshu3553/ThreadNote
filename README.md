@@ -8,9 +8,13 @@ A Slack bot that turns any thread into a structured summary and saves it to a pe
 
 **Thread summarisation** — Mention `@ThreadNote` in any thread. It replies with a clean summary: title, TL;DR, key decisions, and action items. Only you see the response (ephemeral).
 
-**Auto-save to knowledge base** — Every `@ThreadNote` invocation automatically saves the summary and a vector embedding to your personal knowledge base in Neon Postgres.
+**Auto-save to knowledge base** — Every `@ThreadNote` invocation automatically saves the summary and a vector embedding to your personal knowledge base in Neon Postgres. Invoking it again on the same thread overwrites the old summary with the latest one (no duplicates).
 
 **AI Assistant chat** — Open the ThreadNote AI panel in Slack and ask questions in plain English. ThreadNote does a semantic search over your saved threads and replies with context from your own history.
+
+**Daily & weekly digest** — ThreadNote DMs you a digest of saved threads every day at 10 AM and every Monday at 10 AM (in your local timezone). Toggle each digest on/off from the Home tab.
+
+**App Home Tab settings** — Click ThreadNote in the Slack sidebar to open a settings panel. Toggle daily/weekly digests and change your timezone. Settings save instantly.
 
 ---
 
@@ -101,9 +105,24 @@ display_information:
   description: AI thread summarizer and personal knowledge base
   background_color: "#2c3e50"
 features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: ThreadNote
     always_online: true
+  assistant_view:
+    assistant_description: Thread Note taker
+    suggested_prompts:
+      - title: FYI
+        message: FYI
+      - title: Summary
+        message: Summary
+      - title: Noted
+        message: Noted
+      - title: Ok
+        message: Ok
 oauth_config:
   scopes:
     bot:
@@ -111,6 +130,7 @@ oauth_config:
       - channels:history
       - groups:history
       - im:history
+      - im:write
       - mpim:history
       - chat:write
       - users:read
@@ -118,18 +138,21 @@ oauth_config:
       - groups:read
       - reactions:read
       - assistant:write
+  pkce_enabled: false
 settings:
   event_subscriptions:
     bot_events:
       - app_mention
+      - app_home_opened
       - assistant_thread_started
       - assistant_thread_context_changed
       - message.im
   interactivity:
-    is_enabled: false
+    is_enabled: true
   org_deploy_enabled: false
   socket_mode_enabled: true
   token_rotation_enabled: false
+  is_mcp_enabled: false
 ```
 
 3. Click **Next** → **Create**.
@@ -156,41 +179,44 @@ npm install
 
 ### 4. Configure environment variables
 
-```bash
-cp .env.example .env
-```
-
-Open `.env` and fill in all values:
+Create a `.env` file in the project root (`.env.example` is intentionally gitignored — create this from scratch):
 
 ```env
 # Slack
-SLACK_BOT_TOKEN=xoxb-...        # from step 2.5
-SLACK_APP_TOKEN=xapp-...        # from step 2.4
+SLACK_BOT_TOKEN=xoxb-...        # from step 2.5 — Bot User OAuth Token
+SLACK_APP_TOKEN=xapp-...        # from step 2.4 — App-Level Token
 
 # OpenAI
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5.4            # optional, defaults to gpt-5.4
+OPENAI_MODEL=gpt-5.4
 
-# Neon Postgres (from step 1.3)
+# Neon Postgres — from step 1.3
 DATABASE_URL=postgresql://user:password@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
 DIRECT_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
 
 # Embeddings
-OPENAI_EMBEDDING_MODEL=text-embedding-3-large   # optional, this is the default
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 ```
+
+Where to find each value:
+- `SLACK_BOT_TOKEN` — Slack app dashboard → **Install App** → Bot User OAuth Token
+- `SLACK_APP_TOKEN` — Slack app dashboard → **Basic Information → App-Level Tokens** → generate with `connections:write` scope
+- `OPENAI_API_KEY` — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- `DATABASE_URL` — Neon dashboard → **Connection Details** → Pooled connection string (hostname contains `-pooler`)
+- `DIRECT_URL` — Neon dashboard → **Connection Details** → Direct connection string (hostname without `-pooler`). For local dev both can be the same string.
 
 > **Important:** `.env` must be fully configured before running the migration in the next step.
 
-### 5. Run the database migration
-
-This creates the tables in Neon and generates the Prisma client locally:
+### 5. Run the database migration and generate the Prisma client
 
 ```bash
-npm run db:migrate    # when prompted for a migration name, enter: initial_schema
-npm run db:generate   # generates the TypeScript Prisma client
+npm run db:migrate    # applies all pending migrations to Neon; enter a name only if prompted
+npm run db:generate   # generates the local TypeScript Prisma client
 ```
 
-You should see all three tables (`users`, `thread_notes`, `conversations`) in the Neon dashboard under **Tables**.
+> **Important:** `generated/prisma/` is gitignored — it must be created on every new machine by running `npm run db:generate`. The app will crash at startup if this step is skipped.
+
+You should see all three tables (`users`, `thread_notes`, `conversations`) in the Neon dashboard under **Tables**, with all columns including `timezone`, `daily_digest_enabled`, `weekly_digest_enabled`, and `thread_url`.
 
 ### 6. Invite the bot to channels
 
@@ -213,9 +239,12 @@ You should see:
 
 ```
 ⚡ ThreadNote is running (Socket Mode)
+[Scheduler] Started — hourly digest check active
 ```
 
-The bot is now live. Mention `@ThreadNote` in any thread it has access to, or open the **✦ AI** section in the Slack sidebar to chat with your knowledge base.
+If any users already exist in the database and a digest is due (past 10 AM), you will also see `[Scheduler] Daily digest sent to ...` immediately on startup.
+
+The bot is now live. Mention `@ThreadNote` in any thread it has access to, open the **✦ AI** section in the Slack sidebar to chat with your knowledge base, or click ThreadNote in the sidebar to open the Home tab settings.
 
 ---
 
@@ -248,6 +277,10 @@ npm run capture -- "<slack-thread-url>" <name>   # save a thread to JSON for eva
 | AI panel not visible in Slack | Enable Agents & AI Apps at **both** app level and workspace admin level |
 | `PrismaClientConstructorValidationError` | Run `npm run db:generate` to regenerate the Prisma client |
 | `DATABASE_URL` connection error | Confirm `.env` is correctly filled and pgvector extension is enabled in Neon |
+| Home tab is blank | Confirm `app_home_opened` event is in the manifest AND `interactivity.is_enabled: true` |
+| No digest DM received | Confirm `im:write` scope is active (reinstall app); digest sends at 10 AM in user's timezone |
+| Duplicate digests after restart | Check `last_daily_digest_at` / `last_weekly_digest_at` in the `users` table — should be set after each send |
+| Wrong timezone in digest | Open the Home tab in Slack and update the timezone; or check the `timezone` column in Neon directly |
 
 ---
 
@@ -256,25 +289,28 @@ npm run capture -- "<slack-thread-url>" <name>   # save a thread to JSON for eva
 ```
 threadnote/
 ├── src/
-│   ├── index.ts          — Bolt app init, event handlers, shutdown
+│   ├── index.ts          — Bolt app init, event/action handlers, shutdown, scheduler start
 │   ├── processor.ts      — @mention pipeline: fetch → LLM → post → KB save
 │   ├── assistant.ts      — AI Assistant panel handlers (threadStarted, userMessage)
-│   ├── kb.ts             — KB save, vector search, conversation history
+│   ├── kb.ts             — KB save (upsert), vector search, conversation history
 │   ├── embeddings.ts     — OpenAI text-embedding-3-large wrapper
 │   ├── db.ts             — Prisma client singleton + pg pool
 │   ├── llm.ts            — OpenAI Responses API (callLLM, callLLMWithContext)
-│   ├── slack-utils.ts    — Thread fetching, user resolution, mrkdwn converter
+│   ├── slack-utils.ts    — Thread fetching, user resolution, permalink, mrkdwn converter
+│   ├── digest.ts         — Digest message builder and DM sender
+│   ├── scheduler.ts      — Hourly cron, timezone logic, digest due-checks
+│   ├── home.ts           — App Home Tab Block Kit view and action handlers
 │   └── types.ts          — SlackMessage, SlackReaction interfaces
 ├── prisma/
-│   ├── schema.prisma     — users, thread_notes, conversations tables
+│   ├── schema.prisma     — users, thread_notes, conversations tables + digest columns
 │   └── migrations/       — auto-generated migration SQL
 ├── tests/
 │   ├── capture-thread.ts — CLI: save a Slack thread to JSON
 │   ├── eval.ts           — Eval harness
 │   └── sample_threads/   — Captured thread JSON files
 ├── threadnote_system_prompt.md   — System prompt
-├── prisma.config.ts      — Prisma 7 datasource config
-├── .env.example          — Environment variable template
+├── prisma.config.ts      — Prisma 7 datasource config (DATABASE_URL/DIRECT_URL)
+├── .env                  — gitignored — create manually (see Setup § 4)
 └── CLAUDE.md             — Full engineering spec
 ```
 
@@ -326,3 +362,9 @@ threadnote/
 **Long responses** — Slack caps messages at ~3 000 characters. Responses are split into 2 900-character chunks posted as sequential ephemeral messages.
 
 **Graceful shutdown** — `SIGINT`/`SIGTERM` handlers call `app.stop()` (closes the Socket Mode WebSocket) then `closeDb()` (disconnects Prisma and drains the pg pool) before exiting.
+
+**Re-summarise on update** — `saveThreadNote` uses a Prisma `upsert` on the unique constraint `(workspace_id, user_id, channel_id, thread_ts)`. Invoking `@ThreadNote` on an already-saved thread overwrites the summary, decisions, action items, tags, and embedding — no duplicate rows.
+
+**Digest scheduler** — `startScheduler` registers a `node-cron` job that runs every hour on the hour. On each tick (and immediately at startup), `checkAndSendAllDigests` fetches all users and checks `isDailyDigestDue` / `isWeeklyDigestDue`. Both functions use `Intl.DateTimeFormat` for timezone arithmetic — no date library. Digest state (`lastDailyDigestAt`, `lastWeeklyDigestAt`) is stored in Postgres so the scheduler survives restarts without resending.
+
+**App Home Tab** — `handleHomeOpened` fires on `app_home_opened`. It upserts the user if not yet in the DB, auto-detects timezone from `client.users.info`, and publishes a Block Kit view via `client.views.publish`. The three action handlers (`toggle_daily_digest`, `toggle_weekly_digest`, `select_timezone`) save to Postgres immediately on change and republish the view — no Save button needed.

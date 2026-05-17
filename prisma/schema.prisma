@@ -11,10 +11,15 @@ datasource db {
 }
 
 model User {
-  slackWorkspaceId String   @map("slack_workspace_id")
-  slackUserId      String   @map("slack_user_id")
-  displayName      String?  @map("display_name")
-  firstSeenAt      DateTime @default(now()) @map("first_seen_at")
+  slackWorkspaceId    String    @map("slack_workspace_id")
+  slackUserId         String    @map("slack_user_id")
+  displayName         String?   @map("display_name")
+  firstSeenAt         DateTime  @default(now()) @map("first_seen_at")
+  timezone            String    @default("Asia/Kolkata") @map("timezone")
+  weeklyDigestEnabled Boolean   @default(true) @map("weekly_digest_enabled")
+  dailyDigestEnabled  Boolean   @default(true) @map("daily_digest_enabled")
+  lastWeeklyDigestAt  DateTime? @map("last_weekly_digest_at")
+  lastDailyDigestAt   DateTime? @map("last_daily_digest_at")
 
   threadNotes   ThreadNote[]
   conversations Conversation[]
@@ -36,6 +41,7 @@ model ThreadNote {
   tags             String[]
   embedding        Unsupported("vector(3072)")?
   savedAt          DateTime @default(now()) @map("saved_at")
+  threadUrl        String?  @map("thread_url")
 
   user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
 

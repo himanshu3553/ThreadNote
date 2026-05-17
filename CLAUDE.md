@@ -1,6 +1,6 @@
 # CLAUDE.md — ThreadNote
 
-This is the single source of truth for Claude Code. Read the entire file before making any changes. Phase 1 is fully completed. Phase 2 is the current work.
+This is the single source of truth for Claude Code. Read the entire file before making any changes. Phase 1 is fully completed. Phase 2 is fully completed.
 
 ---
 
@@ -9,7 +9,64 @@ This is the single source of truth for Claude Code. Read the entire file before 
 **ThreadNote** is a Slack bot that processes threads into structured summaries, decision logs, action items, and a searchable personal knowledge base. Users invoke it by mentioning `@ThreadNote` in any thread with an optional instruction.
 
 **Phase 1** (completed): Thread processing, LLM summarisation, ephemeral responses.
-**Phase 2** (current): Persist every summary to Neon Postgres, generate embeddings, and enable a conversational AI assistant panel where users can chat with ThreadNote using their saved threads as the knowledge base.
+**Phase 2** (completed): Persist every summary to Neon Postgres, generate embeddings, AI assistant panel, daily/weekly digests, App Home Tab settings.
+
+---
+
+## Fresh Environment Setup (new machine or prod)
+
+Run these steps in order on any machine where the project has never run before:
+
+```bash
+# 1. Install dependencies (includes node-cron, prisma, @slack/bolt, etc.)
+npm install
+
+# 2. Create .env from scratch — see "Environment variables" section below
+#    (.env.example is gitignored — do NOT expect it to exist after cloning)
+
+# 3. Apply all DB migrations to Neon (no name prompt — migrations already exist)
+npm run db:migrate
+
+# 4. Generate the local Prisma client (generated/ is gitignored — must run on each machine)
+npm run db:generate
+
+# 5. Start the app
+npm run start          # production
+npm run dev            # development (hot reload)
+```
+
+### Environment variables required
+
+```env
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4
+DATABASE_URL=postgresql://user:password@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
+DIRECT_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+```
+
+### What is gitignored (must be recreated)
+
+| Path | How to recreate |
+|------|----------------|
+| `.env` | Create manually with values above |
+| `generated/prisma/` | `npm run db:generate` |
+| `node_modules/` | `npm install` |
+| `dist/` | `npm run build` (only needed for compiled output) |
+
+### Expected startup output
+
+```
+⚡ ThreadNote is running (Socket Mode)
+[Scheduler] Started — hourly digest check active
+```
+
+If users exist in the DB and a digest is due (past 10 AM), you will also see:
+```
+[Scheduler] Daily digest sent to U0XXXXXXX
+```
 
 ---
 
@@ -109,7 +166,7 @@ npm run capture -- "<url>" <name>
 
 ---
 
-## Phase 2 — CURRENT WORK
+## Phase 2 — COMPLETED
 
 Build Phase 2 features in the order specified in the Build Order section. Do not skip steps or build out of sequence.
 
@@ -179,9 +236,9 @@ DATABASE_URL is the pooled connection used by Prisma client at runtime.
 DIRECT_URL is the direct non-pooled connection used exclusively by Prisma Migrate.
 Neon provides both from their dashboard. For local dev both can be the same string.
 
-### Updated Slack app manifest
+### Current Slack app manifest (canonical — always update this, never regenerate)
 
-Replace the existing manifest in Slack app config with this:
+This is the single source of truth for the Slack manifest. When adding new features, add only the required lines to this YAML rather than replacing it wholesale.
 
 ```yaml
 display_information:
@@ -189,17 +246,24 @@ display_information:
   description: AI thread summarizer and personal knowledge base
   background_color: "#2c3e50"
 features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: ThreadNote
     always_online: true
-  assistant:
+  assistant_view:
+    assistant_description: Thread Note taker
     suggested_prompts:
-      - title: "What was decided recently?"
-        message: "What were the key decisions from my recently saved threads?"
-      - title: "Show my open action items"
-        message: "What are my open action items from saved threads?"
-      - title: "Summarise my knowledge base"
-        message: "Give me a summary of everything I have saved so far."
+      - title: FYI
+        message: FYI
+      - title: Summary
+        message: Summary
+      - title: Noted
+        message: Noted
+      - title: Ok
+        message: Ok
 oauth_config:
   scopes:
     bot:
@@ -207,6 +271,7 @@ oauth_config:
       - channels:history
       - groups:history
       - im:history
+      - im:write
       - mpim:history
       - chat:write
       - users:read
@@ -214,44 +279,52 @@ oauth_config:
       - groups:read
       - reactions:read
       - assistant:write
+  pkce_enabled: false
 settings:
   event_subscriptions:
     bot_events:
       - app_mention
+      - app_home_opened
       - assistant_thread_started
       - assistant_thread_context_changed
       - message.im
   interactivity:
-    is_enabled: false
+    is_enabled: true
   org_deploy_enabled: false
   socket_mode_enabled: true
   token_rotation_enabled: false
+  is_mcp_enabled: false
 ```
 
-After updating the manifest, reinstall the app to the workspace so the new assistant:write scope takes effect.
+After any manifest change, reinstall the app to the workspace to apply new scopes.
 
 ### Prisma schema
 
-Create this at prisma/schema.prisma:
+The canonical schema lives at `prisma/schema.prisma`. This is the current state including all migrations:
 
 ```prisma
 generator client {
   provider        = "prisma-client-js"
+  output          = "../generated/prisma"
   previewFeatures = ["postgresqlExtensions"]
+  engineType      = "client"
 }
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  directUrl  = env("DIRECT_URL")
   extensions = [pgvector(map: "vector")]
 }
 
 model User {
-  slackWorkspaceId String   @map("slack_workspace_id")
-  slackUserId      String   @map("slack_user_id")
-  displayName      String?  @map("display_name")
-  firstSeenAt      DateTime @default(now()) @map("first_seen_at")
+  slackWorkspaceId    String    @map("slack_workspace_id")
+  slackUserId         String    @map("slack_user_id")
+  displayName         String?   @map("display_name")
+  firstSeenAt         DateTime  @default(now()) @map("first_seen_at")
+  timezone            String    @default("Asia/Kolkata") @map("timezone")
+  weeklyDigestEnabled Boolean   @default(true) @map("weekly_digest_enabled")
+  dailyDigestEnabled  Boolean   @default(true) @map("daily_digest_enabled")
+  lastWeeklyDigestAt  DateTime? @map("last_weekly_digest_at")
+  lastDailyDigestAt   DateTime? @map("last_daily_digest_at")
 
   threadNotes   ThreadNote[]
   conversations Conversation[]
@@ -261,18 +334,19 @@ model User {
 }
 
 model ThreadNote {
-  id               String   @id @default(cuid())
-  slackWorkspaceId String   @map("slack_workspace_id")
-  slackUserId      String   @map("slack_user_id")
-  channelId        String   @map("channel_id")
-  channelName      String?  @map("channel_name")
-  threadTs         String   @map("thread_ts")
-  summaryMarkdown  String   @map("summary_markdown")
+  id               String                      @id @default(cuid())
+  slackWorkspaceId String                      @map("slack_workspace_id")
+  slackUserId      String                      @map("slack_user_id")
+  channelId        String                      @map("channel_id")
+  channelName      String?                     @map("channel_name")
+  threadTs         String                      @map("thread_ts")
+  summaryMarkdown  String                      @map("summary_markdown")
   decisions        Json?
-  actionItems      Json?    @map("action_items")
+  actionItems      Json?                       @map("action_items")
   tags             String[]
   embedding        Unsupported("vector(3072)")?
-  savedAt          DateTime @default(now()) @map("saved_at")
+  savedAt          DateTime                    @default(now()) @map("saved_at")
+  threadUrl        String?                     @map("thread_url")
 
   user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
 
@@ -291,15 +365,17 @@ model Conversation {
 
   user User @relation(fields: [slackWorkspaceId, slackUserId], references: [slackWorkspaceId, slackUserId])
 
+  @@index([slackWorkspaceId, slackUserId, sessionThreadTs, createdAt])
   @@map("conversations")
 }
 ```
 
-IMPORTANT: The embedding field uses Unsupported("vector(3072)") because Prisma does not natively support pgvector operations. This means:
-- You CANNOT use prisma.threadNote.create with an embedding value
-- Inserting and updating embeddings requires prisma.$executeRaw
-- Searching by vector similarity requires prisma.$queryRaw
-- All other fields on all models work normally with the standard Prisma client
+IMPORTANT Prisma 7 quirks — do not change these:
+- `output = "../generated/prisma"` — the client is generated locally, NOT installed from npm. Import path is `../generated/prisma/index.js`, not `@prisma/client`.
+- `datasource db` has no `url`/`directUrl` fields — these are in `prisma.config.ts` (Prisma 7 moved datasource config out of the schema).
+- `engineType = "client"` requires an explicit adapter — see `src/db.ts` which uses `@prisma/adapter-pg`.
+- `generated/prisma/` is gitignored — run `npm run db:generate` on every new machine before starting the app.
+- The `embedding` field uses `Unsupported("vector(3072)")` — inserting/updating embeddings requires `prisma.$executeRaw`, searching requires `prisma.$queryRaw`. All other fields work normally.
 
 ### Phase 2 npm scripts to add to package.json
 
@@ -313,29 +389,35 @@ IMPORTANT: The embedding field uses Unsupported("vector(3072)") because Prisma d
 Run db:migrate whenever prisma/schema.prisma changes.
 Always run db:generate after db:migrate to regenerate the Prisma client.
 
-### Phase 2 updated file structure
+### Current file structure (all phases complete)
 
 ```
 threadnote/
 ├── CLAUDE.md
-├── .env
-├── .env.example
+├── .env                            <- gitignored — create manually (see README)
 ├── .gitignore
 ├── package.json
 ├── tsconfig.json
+├── prisma.config.ts                <- Prisma 7 datasource config (DATABASE_URL/DIRECT_URL)
 ├── threadnote_system_prompt.md
 ├── prisma/
-│   ├── schema.prisma               <- Prisma schema (above)
-│   └── migrations/                 <- auto-generated by Prisma Migrate
+│   ├── schema.prisma               <- source of truth for DB schema
+│   └── migrations/                 <- auto-generated migration SQL (committed)
+├── generated/
+│   └── prisma/                     <- gitignored — run npm run db:generate on each machine
 ├── src/
-│   ├── index.ts                    <- UPDATED: register assistant + kb save on mention
-│   ├── slack-utils.ts              <- UNCHANGED from Phase 1
-│   ├── llm.ts                      <- UPDATED: add callLLMWithContext export
-│   ├── types.ts                    <- UPDATED: add Phase 2 types
-│   ├── db.ts                       <- NEW: Prisma client singleton
-│   ├── embeddings.ts               <- NEW: OpenAI embeddings generation
-│   ├── kb.ts                       <- NEW: save to KB, search KB, conversation history
-│   └── assistant.ts                <- NEW: Bolt Assistant handlers
+│   ├── index.ts                    <- entry point, all event/action registrations, scheduler start
+│   ├── processor.ts                <- @mention pipeline: fetch → LLM → post → KB save
+│   ├── assistant.ts                <- Bolt Assistant handlers (threadStarted, userMessage)
+│   ├── kb.ts                       <- KB upsert, vector search, conversation history
+│   ├── embeddings.ts               <- OpenAI text-embedding-3-large wrapper
+│   ├── db.ts                       <- Prisma client singleton + pg pool (Prisma 7 adapter)
+│   ├── llm.ts                      <- OpenAI Responses API (callLLM, callLLMWithContext)
+│   ├── slack-utils.ts              <- thread fetch, user/channel resolution, permalink, mrkdwn
+│   ├── digest.ts                   <- digest message builder and DM sender
+│   ├── scheduler.ts                <- hourly cron, timezone logic, digest due-checks
+│   ├── home.ts                     <- App Home Tab Block Kit view and action handlers
+│   └── types.ts                    <- SlackMessage, SlackReaction interfaces
 └── tests/
     ├── sample_threads/
     ├── capture-thread.ts
@@ -376,21 +458,31 @@ Verify all three tables exist in Neon dashboard before continuing.
 
 **Step 3 — Create src/db.ts**
 
-Prisma client singleton. Never instantiate PrismaClient more than once in the process.
+Prisma client singleton using the Prisma 7 adapter pattern. Never instantiate PrismaClient more than once in the process.
 
 ```typescript
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../generated/prisma/index.js";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({ log: ["error", "warn"] });
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
+
+export async function closeDb(): Promise<void> {
+  await prisma.$disconnect();
+  await pool.end();
+}
 ```
+
+Note: Import from `../generated/prisma/index.js` not `@prisma/client` — Prisma 7 generates the client locally.
 
 **Step 4 — Create src/embeddings.ts**
 
@@ -560,20 +652,59 @@ System prompt (threadnote_system_prompt.md)
 
 ---
 
-## Phase 2 Current Status — COMPLETED
+## Phase 2 Status — ALL COMPLETED
 
-- [x] Install Prisma, initialise
-- [x] Write prisma/schema.prisma
-- [x] Enable pgvector on Neon, run first migration
-- [x] Create src/db.ts
-- [x] Create src/embeddings.ts
-- [x] Create src/kb.ts
-- [x] Update src/index.ts — add KB save after LLM call
-- [x] Update Slack manifest — Agents and AI Apps
-- [x] Update src/llm.ts — add callLLMWithContext
-- [x] Create src/assistant.ts
-- [x] Register assistant in src/index.ts
-- [x] End-to-end test: mention saves to DB, chat retrieves it
+### Core features
+- [x] Neon Postgres + pgvector + Prisma setup
+- [x] users, thread_notes, conversations tables
+- [x] OpenAI embeddings on every saved summary
+- [x] KB save on every @ThreadNote invocation
+- [x] Per-user KB isolation
+- [x] AI Assistant panel with RAG and conversation memory
+
+### Phase 2 additions
+- [x] Re-summarise on update (upsert, old summary replaced)
+- [x] Thread permalink saved with every thread note
+- [x] Daily digest — DM at 10 AM in user's timezone
+- [x] Weekly digest — DM every Monday at 10 AM in user's timezone
+- [x] Persistent scheduler via node-cron + Postgres state (survives restarts)
+- [x] App Home Tab settings UI — timezone, digest toggles
+- [x] Auto-detect timezone from Slack user profile on first open
+
+---
+
+## Phase 2 Additions — New Files and Packages
+
+### New packages added
+- node-cron — hourly digest scheduler
+- @types/node-cron — TypeScript types
+
+### New files
+- src/digest.ts — digest message builder and DM sender
+- src/scheduler.ts — cron setup, timezone logic, digest due-check
+- src/home.ts — App Home Tab Block Kit view and action handlers
+
+### New columns added (migration: phase2_additions)
+On users table: timezone, weekly_digest_enabled, daily_digest_enabled,
+last_weekly_digest_at, last_daily_digest_at
+On thread_notes table: thread_url
+
+### New Slack scopes added
+- im:write (for opening DM channels to send digests)
+
+### New Slack events added
+- app_home_opened
+
+### New action_ids registered
+- toggle_daily_digest
+- toggle_weekly_digest
+- select_timezone
+
+### Important patterns added
+- Upsert pattern for saveThreadNote — use Prisma upsert on unique constraint
+- Digest due-check uses Intl.DateTimeFormat — no date library
+- Scheduler runs every hour; also fires on startup to catch missed digests
+- Home tab actions save to DB immediately on change — no Save button
 
 ---
 
@@ -591,3 +722,8 @@ System prompt (threadnote_system_prompt.md)
 | output_text empty from OpenAI | Walk response.output array and collect type === "text" blocks manually |
 | Assistant events not firing | Confirm assistant:write scope is active — reinstall app after manifest update |
 | context.teamId is undefined | Ensure Bolt app is installed to workspace correctly |
+| Cron not firing | Confirm node-cron is started after app.start() in index.ts |
+| DM not delivered | Confirm im:write scope is active — reinstall app after manifest update |
+| Home tab blank | Confirm app_home_opened event is in manifest AND interactivity is enabled |
+| Timezone wrong | Check users table — timezone column should match Slack's tz field from users.info |
+| Duplicate digests after restart | Check last_daily_digest_at and last_weekly_digest_at — should be set after each send |

@@ -112,6 +112,7 @@ export async function processMention(
       channelName,
       threadTs,
       summaryMarkdown: rawSummary,
+      threadUrl: permalink,
     }).catch((err) =>
       console.error("ThreadNote: failed to save thread note:", err)
     );

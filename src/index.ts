@@ -2,6 +2,13 @@ import { App } from "@slack/bolt";
 import { processMention } from "./processor.js";
 import { threadNoteAssistant } from "./assistant.js";
 import { closeDb } from "./db.js";
+import {
+  handleHomeOpened,
+  handleToggleDailyDigest,
+  handleToggleWeeklyDigest,
+  handleSelectTimezone,
+} from "./home.js";
+import { startScheduler, checkAndSendAllDigests } from "./scheduler.js";
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -25,8 +32,50 @@ app.event("app_mention", async (args) => {
 
 app.assistant(threadNoteAssistant);
 
+// App Home Tab
+app.event("app_home_opened", async ({ event, client }) => {
+  await handleHomeOpened(event as { user: string; view?: { team_id?: string } }, client);
+});
+
+// Home Tab action handlers — save to DB immediately on change
+app.action("toggle_daily_digest", async ({ body, client, ack, action }) => {
+  await ack();
+  const value = (action as { selected_option?: { value?: string } }).selected_option?.value ?? "enabled";
+  await handleToggleDailyDigest(
+    body as { user?: { id?: string }; view?: { team_id?: string } },
+    client,
+    value
+  );
+});
+
+app.action("toggle_weekly_digest", async ({ body, client, ack, action }) => {
+  await ack();
+  const value = (action as { selected_option?: { value?: string } }).selected_option?.value ?? "enabled";
+  await handleToggleWeeklyDigest(
+    body as { user?: { id?: string }; view?: { team_id?: string } },
+    client,
+    value
+  );
+});
+
+app.action("select_timezone", async ({ body, client, ack, action }) => {
+  await ack();
+  const timezone = (action as { selected_option?: { value?: string } }).selected_option?.value ?? "Asia/Kolkata";
+  await handleSelectTimezone(
+    body as { user?: { id?: string }; view?: { team_id?: string } },
+    client,
+    timezone
+  );
+});
+
 await app.start();
 console.log("⚡ ThreadNote is running (Socket Mode)");
+
+// Check for any missed digests on startup (handles server restarts)
+checkAndSendAllDigests(app.client).catch(console.error);
+
+// Start the hourly digest scheduler
+startScheduler(app.client);
 
 async function shutdown() {
   await app.stop();
