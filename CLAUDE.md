@@ -399,7 +399,8 @@ threadnote/
 ├── package.json
 ├── tsconfig.json
 ├── prisma.config.ts                <- Prisma 7 datasource config (DATABASE_URL/DIRECT_URL)
-├── threadnote_system_prompt.md
+├── threadnote_system_prompt.md     <- system prompt for @mention thread extraction (Title/Gist/Pointers)
+├── ai_assistant_system_prompt.md   <- system prompt for AI chatbot (KB-only, Slack mrkdwn, inline citations)
 ├── prisma/
 │   ├── schema.prisma               <- source of truth for DB schema
 │   └── migrations/                 <- auto-generated migration SQL (committed)
@@ -630,11 +631,15 @@ history.reverse(); // LLM needs chronological order, not reverse
 **LLM prompt structure for assistant chat**
 
 ```
-System prompt (threadnote_system_prompt.md)
-  + Retrieved KB context (top 5 matching thread summaries)
+System prompt (ai_assistant_system_prompt.md)   ← separate from thread extraction prompt
+  + Retrieved KB context (top 5 matching thread summaries, each with thread_url)
   + Conversation history (last 15 messages)
   + New user message
 ```
+
+The two system prompts are kept strictly separate:
+- `threadnote_system_prompt.md` — used by `callLLM` for @mention thread extraction (Title/Gist/Pointers format)
+- `ai_assistant_system_prompt.md` — used by `callLLMWithContext` for the AI chatbot (conversational, KB-only, Slack mrkdwn, inline source citations)
 
 ---
 
@@ -670,6 +675,11 @@ System prompt (threadnote_system_prompt.md)
 - [x] Persistent scheduler via node-cron + Postgres state (survives restarts)
 - [x] App Home Tab settings UI — timezone, digest toggles
 - [x] Auto-detect timezone from Slack user profile on first open
+
+### Post-Phase 2 improvements
+- [x] Separate system prompt for AI chatbot (`ai_assistant_system_prompt.md`) — previously both flows shared `threadnote_system_prompt.md`
+- [x] AI chatbot responses converted to Slack mrkdwn before posting — no raw `**` asterisks
+- [x] `thread_url` included in KB context passed to LLM — model cites sources inline using Slack `<url|label>` format
 
 ---
 

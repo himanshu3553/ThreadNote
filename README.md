@@ -10,7 +10,7 @@ A Slack bot that turns any thread into a structured summary and saves it to a pe
 
 **Auto-save to knowledge base** — Every `@ThreadNote` invocation automatically saves the summary and a vector embedding to your personal knowledge base in Neon Postgres. Invoking it again on the same thread overwrites the old summary with the latest one (no duplicates).
 
-**AI Assistant chat** — Open the ThreadNote AI panel in Slack and ask questions in plain English. ThreadNote does a semantic search over your saved threads and replies with context from your own history.
+**AI Assistant chat** — Open the ThreadNote AI panel in Slack and ask questions in plain English. ThreadNote does a semantic search over your saved threads and replies with context from your own history. Responses use proper Slack formatting and include inline source links to the original threads.
 
 **Daily & weekly digest** — ThreadNote DMs you a digest of saved threads every day at 10 AM and every Monday at 10 AM (in your local timezone). Toggle each digest on/off from the Home tab.
 
@@ -308,7 +308,8 @@ threadnote/
 │   ├── capture-thread.ts — CLI: save a Slack thread to JSON
 │   ├── eval.ts           — Eval harness
 │   └── sample_threads/   — Captured thread JSON files
-├── threadnote_system_prompt.md   — System prompt
+├── threadnote_system_prompt.md   — System prompt for @mention thread extraction
+├── ai_assistant_system_prompt.md — System prompt for AI chatbot (separate)
 ├── prisma.config.ts      — Prisma 7 datasource config (DATABASE_URL/DIRECT_URL)
 ├── .env                  — gitignored — create manually (see Setup § 4)
 └── CLAUDE.md             — Full engineering spec
