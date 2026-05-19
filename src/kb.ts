@@ -79,6 +79,7 @@ export interface KBSearchResult {
   id: string;
   channel_name: string | null;
   thread_ts: string;
+  thread_url: string | null;
   summary_markdown: string;
   decisions: unknown;
   action_items: unknown;
@@ -94,7 +95,7 @@ export async function searchKB(
 ): Promise<KBSearchResult[]> {
   const queryEmbedding = await generateEmbedding(query);
   const results = await prisma.$queryRaw<KBSearchResult[]>`
-    SELECT id, channel_name, thread_ts, summary_markdown, decisions, action_items, tags,
+    SELECT id, channel_name, thread_ts, thread_url, summary_markdown, decisions, action_items, tags,
            1 - (embedding <=> ${`[${queryEmbedding.join(",")}]`}::vector) AS similarity
     FROM thread_notes
     WHERE slack_workspace_id = ${workspaceId}

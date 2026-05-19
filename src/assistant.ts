@@ -6,6 +6,7 @@ import {
   getConversationHistory,
   saveConversationMessage,
 } from "./kb.js";
+import { markdownToSlackMrkdwn } from "./slack-utils.js";
 
 const SUGGESTED_PROMPTS = [
   {
@@ -68,17 +69,20 @@ export const threadNoteAssistant = new Assistant({
         kbResults.length === 0
           ? "No saved threads found yet."
           : kbResults
-              .map(
-                (r, i) =>
-                  `[Thread ${i + 1}] ${r.channel_name ? `#${r.channel_name}` : ""}\n${r.summary_markdown}`
-              )
+              .map((r, i) => {
+                const channelLabel = r.channel_name ? `#${r.channel_name}` : "Slack thread";
+                const urlLine = r.thread_url
+                  ? `URL: ${r.thread_url}`
+                  : `URL: none`;
+                return `[Thread ${i + 1}] ${channelLabel}\n${urlLine}\n${r.summary_markdown}`;
+              })
               .join("\n\n---\n\n");
 
       const response = await callLLMWithContext(kbContext, history, userText);
 
       await saveConversationMessage(workspaceId, userId, sessionThreadTs, "assistant", response);
 
-      await say(response);
+      await say(markdownToSlackMrkdwn(response));
     } catch (err) {
       console.error("ThreadNote assistant: error handling user message:", err);
       await say("Sorry, something went wrong. Please try again.");
