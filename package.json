@@ -11,9 +11,13 @@
     "eval": "node --env-file=.env --import tsx/esm tests/eval.ts",
     "capture": "node --env-file=.env --import tsx/esm tests/capture-thread.ts",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:push": "prisma db push"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -22,6 +26,7 @@
     "dotenv": "^16.4.5",
     "node-cron": "^4.2.1",
     "openai": "^4.70.0",
+    "prisma": "^7.8.0",
     "tsx": "^4.22.3",
     "pg": "^8.20.0"
   },
@@ -29,7 +34,6 @@
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.20.0",
-    "prisma": "^7.8.0",
     "tsx": "^4.22.3",
     "typescript": "^5.6.0"
   }
