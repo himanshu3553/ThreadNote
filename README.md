@@ -248,6 +248,75 @@ The bot is now live. Mention `@ThreadNote` in any thread it has access to, open 
 
 ---
 
+## Deploy on Render
+
+ThreadNote uses Socket Mode — it connects outbound to Slack's WebSocket and does not listen on an HTTP port. Use **Background Worker**, not Web Service.
+
+### 1. Push your code to GitHub
+
+Make sure the repo is up to date on your GitHub remote.
+
+### 2. Create a Background Worker on Render
+
+1. Go to [dashboard.render.com](https://dashboard.render.com) → **New** → **Background Worker**
+2. Connect your GitHub repo and select the `main` branch
+3. Set the following:
+
+| Field | Value |
+|---|---|
+| **Runtime** | Node |
+| **Build Command** | `npm install && npm run db:deploy && npm run db:generate` |
+| **Start Command** | `node --import tsx/esm src/index.ts` |
+
+> **Why override the start command?** The `npm run start` script uses `--env-file=.env`. On Render there is no `.env` file — env vars are injected directly by Render. The override skips the file entirely.
+
+> **Why `db:deploy` in build, not `db:migrate`?** `prisma migrate dev` is for local development only (interactive, creates new migration files). `prisma migrate deploy` applies existing migrations to the production database with no prompts — safe to run in CI/CD.
+
+### 3. Set environment variables
+
+In the Render service dashboard → **Environment** tab, add all seven variables:
+
+| Key | Value |
+|---|---|
+| `SLACK_BOT_TOKEN` | `xoxb-...` |
+| `SLACK_APP_TOKEN` | `xapp-...` |
+| `OPENAI_API_KEY` | `sk-...` |
+| `OPENAI_MODEL` | `gpt-5.4` |
+| `DATABASE_URL` | Neon pooled connection string |
+| `DIRECT_URL` | Neon direct connection string |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-large` |
+
+### 4. Deploy
+
+Click **Save and Deploy**. The build log should show:
+
+```
+Applying migration '20260513190343_initial_schema'...
+Applying migration '20260515111218_add_conversations_index'...
+Applying migration '20260517173914_phase2_additions'...
+All migrations have been applied.
+Prisma Client generated → generated/prisma/
+```
+
+And the runtime log should show:
+
+```
+⚡ ThreadNote is running (Socket Mode)
+[Scheduler] Started — hourly digest check active
+```
+
+### Render deployment troubleshooting
+
+| Error | Fix |
+|---|---|
+| `P2021: The table 'public.users' does not exist` | Build command did not include `npm run db:deploy` — update it and redeploy |
+| `Cannot find module '../generated/prisma/index.js'` | Build command did not include `npm run db:generate` — update it and redeploy |
+| `prisma: command not found` during build | `prisma` must be in `dependencies`, not only `devDependencies` — Render skips devDeps when `NODE_ENV=production` |
+| Service exits immediately after start | Check runtime logs for auth errors — verify all seven env vars are set correctly |
+| `missing_scope` errors in Slack | Reinstall the Slack app to the workspace after any manifest change |
+
+---
+
 ## Commands
 
 ```bash
@@ -256,7 +325,8 @@ npm run start        # start once
 npm run build        # compile TypeScript to dist/
 npm run typecheck    # type-check without emitting
 
-npm run db:migrate   # run pending Prisma migrations
+npm run db:migrate   # run pending Prisma migrations (local dev only)
+npm run db:deploy    # apply migrations to production database (Render / CI)
 npm run db:generate  # regenerate Prisma client after schema changes
 npm run db:studio    # open Prisma Studio (visual DB browser)
 npm run db:push      # push schema changes without a migration file
@@ -276,6 +346,7 @@ npm run capture -- "<slack-thread-url>" <name>   # save a thread to JSON for eva
 | Bot doesn't respond to @mention | Check the bot is invited to the channel and the app is running |
 | AI panel not visible in Slack | Enable Agents & AI Apps at **both** app level and workspace admin level |
 | `PrismaClientConstructorValidationError` | Run `npm run db:generate` to regenerate the Prisma client |
+| `P2021: table does not exist` (local) | Run `npm run db:migrate` then `npm run db:generate` |
 | `DATABASE_URL` connection error | Confirm `.env` is correctly filled and pgvector extension is enabled in Neon |
 | Home tab is blank | Confirm `app_home_opened` event is in the manifest AND `interactivity.is_enabled: true` |
 | No digest DM received | Confirm `im:write` scope is active (reinstall app); digest sends at 10 AM in user's timezone |
