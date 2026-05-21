@@ -1,4 +1,5 @@
 import { App } from "@slack/bolt";
+import type { InstallationQuery } from "@slack/oauth";
 import { processMention } from "./processor.js";
 import { threadNoteAssistant } from "./assistant.js";
 import { closeDb } from "./db.js";
@@ -12,13 +13,23 @@ import { startScheduler, checkAndSendAllDigests } from "./scheduler.js";
 import { createOAuthServer } from "./oauth-server.js";
 import { prismaInstallationStore } from "./installation-store.js";
 
+// Custom authorize: looks up the correct workspace token from the installations
+// table for every incoming event. Keeps Bolt from starting its own HTTP server
+// (which would conflict with our Express OAuth server on the same port).
 const app = new App({
   appToken: process.env.SLACK_APP_TOKEN,
   socketMode: true,
-  installationStore: prismaInstallationStore,
-  clientId: process.env.SLACK_CLIENT_ID,
-  clientSecret: process.env.SLACK_CLIENT_SECRET,
-  stateSecret: process.env.SLACK_STATE_SECRET,
+  authorize: async ({ teamId }) => {
+    const installation = await prismaInstallationStore.fetchInstallation({
+      teamId,
+      isEnterpriseInstall: false,
+    } as InstallationQuery<false>);
+    return {
+      botToken: installation.bot?.token,
+      botId: installation.bot?.id,
+      botUserId: installation.bot?.userId,
+    };
+  },
 });
 
 app.event("app_mention", async (args) => {
