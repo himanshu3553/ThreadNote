@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThreadNote — AI thread summariser for Slack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0f1a;
+      color: #fff;
+      font-family: Inter, system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 80px 24px 48px;
+    }
+
+    .container {
+      max-width: 680px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 4px 14px;
+      margin-bottom: 28px;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 6vw, 3.2rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+
+    h1 span { color: #6366f1; }
+
+    .tagline {
+      font-size: 1.15rem;
+      color: #a0a0b0;
+      line-height: 1.6;
+      margin-bottom: 48px;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 52px;
+      text-align: left;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      background: #4f46e5;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .step-text {
+      font-size: 15px;
+      color: #d1d1e0;
+      line-height: 1.5;
+      padding-top: 3px;
+    }
+
+    .cta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .cta-note {
+      font-size: 13px;
+      color: #6b6b80;
+    }
+
+    footer {
+      margin-top: auto;
+      padding-top: 48px;
+      font-size: 13px;
+      color: #4a4a5a;
+    }
+
+    footer a { color: #6b6b80; text-decoration: none; }
+    footer a:hover { color: #a0a0b0; }
+    footer span { margin: 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="badge">Free · No credit card required</div>
+
+    <h1><span>ThreadNote</span></h1>
+    <p class="tagline">Turn your Slack threads into a searchable knowledge base.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">Mention <strong>@ThreadNote</strong> in any Slack thread</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">Get an instant <strong>private summary</strong>, decisions, and action items — only you can see it</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text">Chat with ThreadNote to <strong>search everything you've saved</strong> across all your threads</div>
+      </div>
+    </div>
+
+    <div class="cta">
+      <a href="/slack/install">
+        <img
+          alt="Add to Slack"
+          height="40"
+          width="139"
+          src="https://platform.slack-edge.com/img/add_to_slack.png"
+          srcset="
+            https://platform.slack-edge.com/img/add_to_slack.png    1x,
+            https://platform.slack-edge.com/img/add_to_slack@2x.png 2x
+          "
+        />
+      </a>
+      <p class="cta-note">Completely free · No Marketplace approval required</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="#">Privacy Policy</a>
+    <span>·</span>
+    <a href="#">Terms of Service</a>
+  </footer>
+</body>
+</html>

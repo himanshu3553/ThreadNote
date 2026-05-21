@@ -105,25 +105,69 @@ const FILTERED_SUBTYPES = new Set([
 export async function fetchFullThread(
   client: WebClient,
   channel: string,
-  threadTs: string
+  threadTs: string,
+  onProgress?: (page: number, estimatedTotal: number) => Promise<void>
 ): Promise<SlackMessage[]> {
   const messages: SlackMessage[] = [];
-  let cursor: string | undefined;
 
-  do {
+  // First request
+  const firstResp = await client.conversations.replies({
+    channel,
+    ts: threadTs,
+    limit: 15,
+  });
+
+  if (firstResp.messages) {
+    messages.push(...(firstResp.messages as SlackMessage[]));
+  }
+
+  // Single page — return immediately, no delay
+  if (!firstResp.has_more) {
+    return messages;
+  }
+
+  // Multi-page — estimate total pages from reply_count on parent message
+  const parent = firstResp.messages?.[0] as SlackMessage & {
+    reply_count?: number;
+  };
+  const replyCount = parent?.reply_count ?? 0;
+  const estimatedPages = Math.ceil((replyCount + 1) / 15);
+
+  // Report page 1 progress
+  if (onProgress) {
+    await onProgress(1, estimatedPages).catch(console.error);
+  }
+
+  let cursor = firstResp.response_metadata?.next_cursor;
+  let page = 1;
+
+  while (cursor) {
+    page++;
+
+    // Wait 62 seconds between pages to respect 1 req/min rate limit
+    // for non-Marketplace distributed apps
+    await new Promise((resolve) => setTimeout(resolve, 62_000));
+
     const resp = await client.conversations.replies({
       channel,
       ts: threadTs,
       cursor,
-      limit: 200,
+      limit: 15,
     });
 
     if (resp.messages) {
-      messages.push(...(resp.messages as SlackMessage[]));
+      // Skip the first message on subsequent pages — it's the parent repeated
+      messages.push(...(resp.messages.slice(1) as SlackMessage[]));
     }
 
-    cursor = resp.has_more ? resp.response_metadata?.next_cursor : undefined;
-  } while (cursor);
+    if (onProgress) {
+      await onProgress(page, estimatedPages).catch(console.error);
+    }
+
+    if (!resp.has_more) break;
+    cursor = resp.response_metadata?.next_cursor;
+    if (!cursor) break;
+  }
 
   return messages;
 }

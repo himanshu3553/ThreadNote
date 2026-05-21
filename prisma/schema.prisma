@@ -63,3 +63,19 @@ model Conversation {
   @@index([slackWorkspaceId, slackUserId, sessionThreadTs, createdAt])
   @@map("conversations")
 }
+
+model Installation {
+  id                String    @id @default(cuid())
+  teamId            String    @map("team_id")
+  teamName          String?   @map("team_name")
+  botToken          String    @map("bot_token")
+  botUserId         String?   @map("bot_user_id")
+  botId             String?   @map("bot_id")
+  appId             String?   @map("app_id")
+  installedByUserId String?   @map("installed_by_user_id")
+  installedAt       DateTime  @default(now()) @map("installed_at")
+  isActive          Boolean   @default(true) @map("is_active")
+
+  @@unique([teamId])
+  @@map("installations")
+}

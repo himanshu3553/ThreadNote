@@ -1,6 +1,20 @@
 # CLAUDE.md — ThreadNote
 
-This is the single source of truth for Claude Code. Read the entire file before making any changes. Phase 1 is fully completed. Phase 2 is fully completed.
+This is the single source of truth for Claude Code. Read the entire file before making any changes. Phase 1 is fully completed. Phase 2 is fully completed. Phase 3 is fully completed.
+
+## Branching and Environment Strategy
+
+| Branch | Purpose | Deployed to |
+|--------|---------|-------------|
+| `main` | Production releases | Render (Web Service, auto-deploys on push) |
+| `dev` | Active development | Local only |
+
+| Environment | Neon DB | Config |
+|-------------|---------|--------|
+| Local dev | `ThreadNote_Dev` | `.env` file |
+| Production | `ThreadNote_Prod` | Render environment tab |
+
+**Slack app** is created in Himanshu's personal workspace and distributed publicly via the landing page. The personal workspace also needs a row in `installations` — install once via the landing page after first deploy.
 
 ---
 
@@ -10,6 +24,7 @@ This is the single source of truth for Claude Code. Read the entire file before 
 
 **Phase 1** (completed): Thread processing, LLM summarisation, ephemeral responses.
 **Phase 2** (completed): Persist every summary to Neon Postgres, generate embeddings, AI assistant panel, daily/weekly digests, App Home Tab settings.
+**Phase 3** (completed): Multi-workspace OAuth, Express server for OAuth + landing page, graceful rate limit handling, welcome DM.
 
 ---
 
@@ -21,16 +36,20 @@ Run these steps in order on any machine where the project has never run before:
 # 1. Install dependencies (includes node-cron, prisma, @slack/bolt, etc.)
 npm install
 
-# 2. Create .env from scratch — see "Environment variables" section below
+# 2. Enable pgvector on Neon FIRST (must be done before migration)
+#    Run in Neon SQL Editor for the target database:
+#    CREATE EXTENSION IF NOT EXISTS vector;
+
+# 3. Create .env from scratch — see "Environment variables" section below
 #    (.env.example is gitignored — do NOT expect it to exist after cloning)
 
-# 3. Apply all DB migrations to Neon (no name prompt — migrations already exist)
+# 4. Apply all DB migrations to Neon (no name prompt — migrations already exist)
 npm run db:migrate
 
-# 4. Generate the local Prisma client (generated/ is gitignored — must run on each machine)
+# 5. Generate the local Prisma client (generated/ is gitignored — must run on each machine)
 npm run db:generate
 
-# 5. Start the app
+# 6. Start the app
 npm run start          # production
 npm run dev            # development (hot reload)
 ```
@@ -45,6 +64,11 @@ OPENAI_MODEL=gpt-5.4
 DATABASE_URL=postgresql://user:password@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
 DIRECT_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_STATE_SECRET=...
+APP_URL=https://your-app.onrender.com
+PORT=3000
 ```
 
 ### What is gitignored (must be recreated)
@@ -60,6 +84,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 
 ```
 ⚡ ThreadNote is running (Socket Mode)
+🌐 ThreadNote OAuth server running on port 3000
 [Scheduler] Started — hourly digest check active
 ```
 
@@ -401,23 +426,28 @@ threadnote/
 ├── prisma.config.ts                <- Prisma 7 datasource config (DATABASE_URL/DIRECT_URL)
 ├── threadnote_system_prompt.md     <- system prompt for @mention thread extraction (Title/Gist/Pointers)
 ├── ai_assistant_system_prompt.md   <- system prompt for AI chatbot (KB-only, Slack mrkdwn, inline citations)
+├── public/
+│   └── index.html                  <- minimal landing page with Add to Slack button
 ├── prisma/
 │   ├── schema.prisma               <- source of truth for DB schema
 │   └── migrations/                 <- auto-generated migration SQL (committed)
 ├── generated/
 │   └── prisma/                     <- gitignored — run npm run db:generate on each machine
 ├── src/
-│   ├── index.ts                    <- entry point, all event/action registrations, scheduler start
+│   ├── index.ts                    <- entry point, all event/action registrations, scheduler + OAuth server start
 │   ├── processor.ts                <- @mention pipeline: fetch → LLM → post → KB save
 │   ├── assistant.ts                <- Bolt Assistant handlers (threadStarted, userMessage)
 │   ├── kb.ts                       <- KB upsert, vector search, conversation history
 │   ├── embeddings.ts               <- OpenAI text-embedding-3-large wrapper
 │   ├── db.ts                       <- Prisma client singleton + pg pool (Prisma 7 adapter)
 │   ├── llm.ts                      <- OpenAI Responses API (callLLM, callLLMWithContext)
-│   ├── slack-utils.ts              <- thread fetch, user/channel resolution, permalink, mrkdwn
+│   ├── slack-utils.ts              <- thread fetch (paginated), user/channel resolution, permalink, mrkdwn
 │   ├── digest.ts                   <- digest message builder and DM sender
 │   ├── scheduler.ts                <- hourly cron, timezone logic, digest due-checks
 │   ├── home.ts                     <- App Home Tab Block Kit view and action handlers
+│   ├── installation-store.ts       <- Prisma InstallationStore for multi-workspace OAuth
+│   ├── welcome.ts                  <- welcome DM content and sender
+│   ├── oauth-server.ts             <- Express server for /slack/install, /slack/oauth_redirect, landing page
 │   └── types.ts                    <- SlackMessage, SlackReaction interfaces
 └── tests/
     ├── sample_threads/
@@ -718,6 +748,86 @@ On thread_notes table: thread_url
 
 ---
 
+## Phase 3 — Public Launch — COMPLETED
+
+### Goal
+Make ThreadNote publicly distributable. Any Slack workspace can install
+via the Add to Slack button at the landing page without Marketplace approval.
+
+### Confirmed decisions
+- Socket Mode retained in both local dev and production — no HTTP Events API
+- Multi-workspace OAuth via Prisma InstallationStore
+- Small Express server runs alongside Bolt for OAuth endpoints and landing page
+- Rate limit: graceful pagination with 62s delay between pages, progress updates shown
+- Welcome DM sent to installing user on first install only, not on reinstalls
+- Completely free — no billing, no usage caps
+- Minimal landing page served from Express at root URL
+
+### New files
+- src/installation-store.ts — Prisma InstallationStore for multi-workspace OAuth
+- src/welcome.ts — welcome DM content and sender
+- src/oauth-server.ts — Express server for /slack/install, /slack/oauth_redirect, landing page
+- public/index.html — minimal landing page
+
+### Updated files
+- src/index.ts — starts OAuth Express server alongside Bolt, passes progress callback
+- src/processor.ts — placeholder is now a regular message (deleted after summary), passes progress callback
+- src/slack-utils.ts — fetchFullThread with onProgress and 62s inter-page delay
+- prisma/schema.prisma — installations table added
+
+### New environment variables
+- SLACK_CLIENT_ID
+- SLACK_CLIENT_SECRET
+- SLACK_STATE_SECRET
+- APP_URL
+- PORT
+
+### New migration
+- phase3_oauth — adds installations table
+
+### Rate limit behaviour
+- Threads ≤15 messages: instant, zero delay, no progress update shown
+- Threads 16–30 messages: one 62s wait for page 2, progress shown
+- Threads 31–45 messages: two 62s waits, progress shown per page
+- Only affects non-Marketplace installations — personal workspace and TabSquare unaffected
+
+### Architecture
+Bolt (Socket Mode WebSocket) and Express (HTTP on PORT) run in one Node.js process.
+Bolt handles all Slack events. Express handles GET /, /slack/install, /slack/oauth_redirect.
+They share the same Prisma client via prismaInstallationStore.
+
+### Bolt initialisation — multi-workspace (IMPORTANT)
+The Bolt App is initialised WITHOUT a hardcoded `token`. Instead it uses `installationStore`:
+
+```typescript
+const app = new App({
+  appToken: process.env.SLACK_APP_TOKEN,  // app-level Socket Mode token — unchanged
+  socketMode: true,
+  installationStore: prismaInstallationStore,  // fetches per-workspace token from DB
+});
+```
+
+`SLACK_BOT_TOKEN` is kept in `.env` for reference but is NOT passed to Bolt.
+For each incoming event, Bolt calls `fetchInstallation({ teamId })` to get the correct
+workspace token from the `installations` table. The dev workspace must also have a row
+in `installations` — install via the landing page once to seed it.
+
+### Render deployment — Web Service (not Background Worker)
+Phase 3 requires the Express server to be publicly accessible for OAuth redirects.
+Render must be configured as a **Web Service** (not Background Worker) so port 3000
+is exposed. Set `PORT=3000` in Render environment variables.
+
+### Slack manifest change needed
+Add `redirect_urls` under `oauth_config` in api.slack.com/apps → App Manifest:
+```yaml
+oauth_config:
+  redirect_urls:
+    - https://your-app.onrender.com/slack/oauth_redirect
+```
+Everything else in the manifest is unchanged — socket_mode_enabled: true stays.
+
+---
+
 ## Global Gotchas (All Phases)
 
 | Gotcha | Fix |
@@ -737,3 +847,9 @@ On thread_notes table: thread_url
 | Home tab blank | Confirm app_home_opened event is in manifest AND interactivity is enabled |
 | Timezone wrong | Check users table — timezone column should match Slack's tz field from users.info |
 | Duplicate digests after restart | Check last_daily_digest_at and last_weekly_digest_at — should be set after each send |
+| OAuth redirect mismatch | Redirect URL in manifest must exactly match APP_URL + /slack/oauth_redirect |
+| Welcome DM sent twice on reinstall | Check existing record BEFORE upsert in storeInstallation |
+| installations table missing | Run npm run db:migrate then npm run db:generate |
+| Landing page 404 | Confirm public/index.html exists and __dirname path is correct in oauth-server.ts |
+| SLACK_CLIENT_ID undefined | Add to Render environment variables — not the same as SLACK_BOT_TOKEN |
+| Rate limit 429 from Slack | Increase delay from 62s to 70s in fetchFullThread |
