@@ -65,11 +65,14 @@ export async function processMention(
   const rawText = (event as { text?: string }).text ?? "";
   const instruction = rawText.replace(/<@[A-Z0-9]+>/g, "").trim() || "go ahead";
 
-  // Ephemeral placeholder — visible only to the invoking user.
-  await postEphemeral(
-    client, channel, userId, threadTs,
-    ":hourglass_flowing_sand: ThreadNote is reading the thread…"
-  );
+  // Placeholder visible in the thread so all participants know ThreadNote is working.
+  // Uses a regular message (not ephemeral) so it can be updated with progress info
+  // for long threads, then deleted after the private summary is delivered.
+  const placeholder = await client.chat.postMessage({
+    channel,
+    thread_ts: threadTs,
+    text: ":hourglass_flowing_sand: ThreadNote is reading the thread…",
+  });
 
   try {
     // Fetch channel name and thread permalink in parallel.
@@ -79,7 +82,19 @@ export async function processMention(
     ]);
 
     // Fetch the full thread and remove the trigger message itself.
-    let messages = await fetchFullThread(client, channel, threadTs);
+    let messages = await fetchFullThread(
+      client,
+      channel,
+      threadTs,
+      async (page: number, totalPages: number) => {
+        if (totalPages <= 1) return;
+        await client.chat.update({
+          channel,
+          ts: placeholder.ts!,
+          text: `:hourglass_flowing_sand: ThreadNote is reading the thread — fetching page ${page} of ~${totalPages}…`,
+        });
+      }
+    );
     messages = messages.filter((m) => m.ts !== event.ts);
 
     if (messages.length === 0) {
@@ -123,5 +138,10 @@ export async function processMention(
       client, channel, userId, threadTs,
       `:x: ThreadNote ran into an error: \`${errMsg}\``
     );
+  } finally {
+    // Delete the placeholder so the thread isn't left with a stale "reading…" message.
+    if (placeholder.ts) {
+      await client.chat.delete({ channel, ts: placeholder.ts }).catch(() => {});
+    }
   }
 }

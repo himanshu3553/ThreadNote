@@ -9,11 +9,13 @@ import {
   handleSelectTimezone,
 } from "./home.js";
 import { startScheduler, checkAndSendAllDigests } from "./scheduler.js";
+import { createOAuthServer } from "./oauth-server.js";
+import { prismaInstallationStore } from "./installation-store.js";
 
 const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
   appToken: process.env.SLACK_APP_TOKEN,
   socketMode: true,
+  installationStore: prismaInstallationStore,
 });
 
 app.event("app_mention", async (args) => {
@@ -70,6 +72,13 @@ app.action("select_timezone", async ({ body, client, ack, action }) => {
 
 await app.start();
 console.log("⚡ ThreadNote is running (Socket Mode)");
+
+// Start OAuth + landing page Express server
+const PORT = parseInt(process.env.PORT ?? "3000", 10);
+const oauthServer = createOAuthServer();
+oauthServer.listen(PORT, () => {
+  console.log(`🌐 ThreadNote OAuth server running on port ${PORT}`);
+});
 
 // Check for any missed digests on startup (handles server restarts)
 checkAndSendAllDigests(app.client).catch(console.error);
